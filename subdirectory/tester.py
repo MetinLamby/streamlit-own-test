@@ -10,8 +10,7 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 
 
-# OpenAI setup
-client = OpenAI(api_key="...")  # Replace with your actual key
+# OpenAI setup: client
 
 # Upload images
 uploaded_files = st.file_uploader("Upload portfolio screenshots", type=["jpg", "png"], accept_multiple_files=True)
