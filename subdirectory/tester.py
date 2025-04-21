@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 
 # OpenAI setup
-client = OpenAI(api_key="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")  # Replace with your actual key
+client = OpenAI(api_key="...")  # Replace with your actual key
 
 # Upload images
 uploaded_files = st.file_uploader("Upload portfolio screenshots", type=["jpg", "png"], accept_multiple_files=True)
