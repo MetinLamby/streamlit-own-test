@@ -8,10 +8,21 @@ import ast
 import time
 import yfinance as yf
 import matplotlib.pyplot as plt
+import os  # Add this import
 
+image_path = "combined_pie_charts.jpg"
+if os.path.exists(image_path):
+    try:
+        os.remove(image_path)
+    except Exception as e:
+        st.warning(f"⚠️ Could not remove the file '{image_path}': {e}")
 
 # OpenAI setup: client
 
+st.set_page_config(page_title="Modular MVP", layout="wide")
+st.title("Modular MVP")
+
+st.subheader(f"1. Portfolio Screenshot Upload")
 
 # Upload images
 uploaded_files = st.file_uploader("Upload portfolio screenshots", type=["jpg", "png"], accept_multiple_files=True)
@@ -31,7 +42,7 @@ if uploaded_files:
 
         base64_img = encode_image(img)
 
-        st.write(f"🧠 Extracting from {file.name} using GPT-4 Vision...")
+        st.write(f"- Extracting portfolio data from {file.name} ...")
 
         try:
             response = client.chat.completions.create(
@@ -72,6 +83,7 @@ if uploaded_files:
 df = pd.DataFrame()
 
 # Show combined table
+portfolioExtractComplete = False
 if all_holdings:  # Ensure there are holdings to process
     df = pd.DataFrame(all_holdings)
 
@@ -105,14 +117,13 @@ if all_holdings:  # Ensure there are holdings to process
         st.warning("⚠️ No 'amount' column found in the extracted holdings.")
         df = pd.DataFrame()  # Create an empty DataFrame
 
-    st.subheader("📊 Combined Extracted Holdings")
+    st.subheader("2. Extracted Holdings")
     st.dataframe(df, use_container_width=True)
-else:
-    st.warning("⚠️ No holdings were extracted from the uploaded files.")
+    portfolioExtractComplete = True
 
 
-
-st.subheader("🧠 Enriching Holdings with Ticker, Sector & Country")
+if portfolioExtractComplete: 
+    st.subheader("🧠 Enriching Holdings with Ticker, Sector & Country")
 
 valid_rows = []
 
@@ -145,7 +156,6 @@ if not df.empty:
                 stock = yf.Ticker(ticker)
                 time.sleep(2)  # wait before the next call
                 info = stock.info
-                st.write(f"info for {stock}: {info}")
                 sector = info.get("sector", "Unknown")
                 country = info.get("country", "Unknown")
             except Exception as e:
@@ -172,12 +182,10 @@ if not df.empty:
             st.warning(f"⚠️ Skipped '{holding_name}': {e}")
             continue
 
-        progress.progress((i + 1) / len(df))
-        status_text.text(f"Processing {i + 1} / {len(df)} holdings...")
-
-
+portfolioBreakDownComplete = False
 if valid_rows:
     enriched_df = pd.DataFrame(valid_rows)
+    st.dataframe(enriched_df, use_container_width=True)
 
     # Calculate weights
     total_value = enriched_df['amount'].sum()
@@ -215,8 +223,86 @@ if valid_rows:
     st.subheader("📈 Portfolio Allocation Breakdown")
     st.pyplot(fig)
 
-    with open("combined_pie_charts.jpg", "rb") as img_file:
-        st.download_button("📥 Download Chart as JPG", img_file, file_name="combined_pie_charts.jpg")
+    portfolioBreakDownComplete = True
 
-else:
-    st.warning("📉 No enriched holdings available to plot.")
+# IMAGE ANALYSIS SECTION
+
+# 1. Define the encoding function
+def encode_image(image_path):
+    if not os.path.exists(image_path):
+        st.warning(f"⚠️ The file '{image_path}' does not exist. Skipping image analysis.")
+        return None
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
+
+# 2. Encode and send the pie chart to OpenAI Vision
+if portfolioBreakDownComplete:
+    st.subheader("🧠 Portfolio Analysis (LLM-Generated Insight)")
+
+# Check if the image file exists before proceeding
+if os.path.exists("combined_pie_charts.jpg"):
+    try:
+        base64_image = encode_image("combined_pie_charts.jpg")
+        if base64_image:  # Proceed only if the file was successfully encoded
+            with st.spinner("🧠 LLM is generating response ..."):
+                vision_response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "This is an image of two pie charts that show a sector and geography allocation "
+                                        "of a portfolio. Give a human-readable summary of the distribution and its implications "
+                                        "for diversification."
+                                    ),
+                                },
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/jpeg;base64,{base64_image}"
+                                    }
+                                },
+                            ],
+                        }
+                    ],
+                    max_tokens=500,
+                )
+
+            analysis_text = vision_response.choices[0].message.content.strip()
+            st.markdown(f"📋 **Summary:**\n\n{analysis_text}")
+
+            with st.spinner("🤖 Evaluating diversification level..."):
+                try:
+                    classification_prompt = f"""
+                    Based on the following analysis of a portfolio's sector and geography allocation, rate the portfolio's diversification as either 'Good' or 'Bad'. Be strict in your assessment.
+
+                    Analysis:
+                    {analysis_text}
+
+                    Respond only with 'Good' or 'Bad'.
+                    """
+
+                    judgment_response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": classification_prompt}],
+                        max_tokens=5
+                    )
+
+                    verdict = judgment_response.choices[0].message.content.strip().lower()
+                    st.write(f"🔍 LLM Diversification Judgment: **{verdict.capitalize()}**")
+
+                    if verdict == "bad":
+                        st.warning("⚠️ Diversification may be problematic. We recommend speaking to an advisor.")
+                        if st.button("📞 Call Advisor"):
+                            st.success("✅ Advisor has been notified.")
+                except Exception as e:
+                    st.error("Could not evaluate diversification.")
+                    st.exception(e)
+        else:
+            st.warning("⚠️ Skipping LLM-based analysis due to missing image.")
+    except Exception as e:
+        st.warning("⚠️ Could not generate LLM-based analysis.")
+        st.exception(e)
